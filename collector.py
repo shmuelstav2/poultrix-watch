@@ -18,6 +18,8 @@ import os
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import db  # SQLite warehouse
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = HERE
 HOST, PORT = "127.0.0.1", 8765
@@ -42,6 +44,20 @@ def save(payload):
     changes = payload.get("changes", [])
     rows = payload.get("rows", [])
     farm = payload.get("farm", "")
+    farm_id = payload.get("farmId") or payload.get("farm_id")
+    midgar = payload.get("flock") or payload.get("midgar") or ""
+    mode = payload.get("mode", "incremental")
+
+    # --- warehouse: upsert into SQLite (the central store) ---
+    db_result = {}
+    try:
+        con = db.connect()
+        db.save_raw(con, farm_id, farm, midgar, {"timestamp": ts, "rows": rows})
+        ins, upd, skip = db.upsert_rows(con, farm_id, farm, midgar, rows, mode=mode)
+        con.close()
+        db_result = {"inserted": ins, "updated": upd, "skipped": skip}
+    except Exception as e:
+        db_result = {"db_error": str(e)}
 
     # full latest snapshot (overwrite) - all current rows
     with open(LATEST, "w", encoding="utf-8") as f:
@@ -64,7 +80,7 @@ def save(payload):
                      if c.get(k) not in (None, "", "0")]
             f.write(f"[{c.get('type', '')}] " + ", ".join(parts) + "\n")
 
-    return {"ok": True, "saved_changes": len(changes), "rows": len(rows)}
+    return {"ok": True, "saved_changes": len(changes), "rows": len(rows), "db": db_result}
 
 
 class Handler(BaseHTTPRequestHandler):

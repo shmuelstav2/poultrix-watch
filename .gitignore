@@ -5,3 +5,10 @@ kfar_harif_log.txt
 *.out
 err.txt
 out.txt
+
+# warehouse db
+poultrix.db
+*.db
+api_key.txt
+__pycache__/
+*.pyc
