@@ -1,0 +1,39 @@
+name: deploy
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, windows]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy collector + userscript, restart, health check
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dst = 'C:\Users\shmuelstav\poultrix_bot\svc'
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item collector.py $dst -Force
+          Copy-Item poultrix_watch.user.js $dst -Force
+          Write-Output "copied files to $dst"
+
+          # restart the collector
+          Get-CimInstance Win32_Process -Filter "name='pythonw.exe'" |
+            Where-Object { $_.CommandLine -like '*collector.py*' } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Output "killed old collector PID $($_.ProcessId)" }
+          Start-Sleep 1
+          Start-Process pythonw -ArgumentList "$dst\collector.py" -WindowStyle Hidden
+          Start-Sleep 3
+
+          # health check
+          try {
+            $r = (Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765 -TimeoutSec 5).Content
+            Write-Output "HEALTH: $r"
+          } catch {
+            Write-Output "HEALTH CHECK FAILED: $_"
+            exit 1
+          }
+          Write-Output "DEPLOY OK"
