@@ -13,6 +13,7 @@ Endpoints (all except /health require header  X-API-Key: <key>):
 import os
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 
 import db
 
@@ -130,3 +131,49 @@ def reports_summary(domain: str = Query(None)):
     p = [domain] if domain else []
     return q(f"SELECT farm_name, midgar_text, domain, COUNT(*) rows FROM report_rows {clause} "
              f"GROUP BY farm_poultrix_id, midgar_text, domain ORDER BY farm_name", p)
+
+
+# ---- server logs (continuously readable via the tunnel) ----
+_SVC = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_SVC)  # poultrix_bot root (where the login run.log lives)
+
+LOG_FILES = {
+    "login": os.path.join(_ROOT, "run.log"),                 # latest auto-login run
+    "login_history": os.path.join(_SVC, "login_history.log"),  # every login run, appended
+    "deploy": os.path.join(_SVC, "deploy_status.txt"),
+    "last_check": os.path.join(_SVC, "last_check.txt"),
+    "cloudflared": os.path.join(_SVC, "cloudflared.log"),
+    "collector": os.path.join(_SVC, "kfar_harif_log.txt"),
+}
+
+
+@app.get("/logs")
+def logs_index():
+    """List available logs with size + mtime (no key required)."""
+    import time as _t
+    out = {}
+    for name, path in LOG_FILES.items():
+        if os.path.exists(path):
+            st = os.stat(path)
+            out[name] = {"bytes": st.st_size,
+                         "modified": _t.strftime("%Y-%m-%dT%H:%M:%S", _t.localtime(st.st_mtime))}
+        else:
+            out[name] = None
+    return {"logs": out, "read": "/logs/{name}?tail=N"}
+
+
+@app.get("/logs/{name}", response_class=PlainTextResponse)
+def log_read(name: str, tail: int = Query(200, ge=1, le=5000)):
+    """Return the last `tail` lines of a named log as plain text (no key)."""
+    path = LOG_FILES.get(name)
+    if not path:
+        raise HTTPException(status_code=404,
+                            detail="unknown log '%s'; choose from %s" % (name, list(LOG_FILES)))
+    if not os.path.exists(path):
+        return "(log '%s' does not exist yet: %s)" % (name, path)
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        return "".join(lines[-tail:])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="read error: %s" % e)
