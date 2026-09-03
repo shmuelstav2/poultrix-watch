@@ -12,3 +12,7 @@ poultrix.db
 api_key.txt
 __pycache__/
 *.pyc
+cloudflared.exe
+cloudflared.log
+tunnel_url.txt
+seed_payload.json

@@ -35,6 +35,16 @@ if ($before -and $after -and ($before -ne $after)) {
 if (-not (Test-Port 'http://127.0.0.1:8765')) { Start-Collector; Start-Sleep 3 }
 if (-not (Test-Port 'http://127.0.0.1:8000/health')) { Start-Api; Start-Sleep 4 }
 
+# 2b) watchdog the Cloudflare tunnel; record the current public URL
+if (-not (Get-Process cloudflared -ErrorAction SilentlyContinue)) {
+  Start-ScheduledTask -TaskName 'PoultrixTunnel' -ErrorAction SilentlyContinue
+  Start-Sleep 12
+}
+$turl = (Get-Content "$dir\cloudflared.log" -ErrorAction SilentlyContinue |
+         Select-String -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' |
+         ForEach-Object { $_.Matches.Value } | Select-Object -Last 1)
+if ($turl) { $turl | Out-File "$dir\tunnel_url.txt" -Encoding utf8 -NoNewline }
+
 $col = if (Test-Port 'http://127.0.0.1:8765') { 'up' } else { 'DOWN' }
 $api = if (Test-Port 'http://127.0.0.1:8000/health') { 'up' } else { 'DOWN' }
 
