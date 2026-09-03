@@ -1,0 +1,7 @@
+# runtime data / logs (never commit scraped data)
+kfar_harif_latest.json
+kfar_harif_changes.jsonl
+kfar_harif_log.txt
+*.out
+err.txt
+out.txt
