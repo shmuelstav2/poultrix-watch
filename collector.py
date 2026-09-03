@@ -27,35 +27,44 @@ LATEST = os.path.join(DATA_DIR, "kfar_harif_latest.json")
 LOGTXT = os.path.join(DATA_DIR, "kfar_harif_log.txt")
 
 
+# fields to render in the human-readable log, in order
+LOG_FIELDS = [
+    ("date", "תאריך"), ("building", "מבנה"), ("age", "גיל"),
+    ("mortality", "תמותה"), ("culls", "פסילה"), ("weight", "משקל"),
+    ("feed", "מזון"), ("water", "מים"), ("population", "ס.אכלוס"),
+    ("totalMort", "סהכ תמותה"), ("cumMort", "תמותה מצט"),
+    ("stdWeight", "משקל תקן"), ("notes", "הערות"),
+]
+
+
 def save(payload):
     ts = payload.get("timestamp") or datetime.now().isoformat(timespec="seconds")
     changes = payload.get("changes", [])
-    grids = payload.get("grids", [])
+    rows = payload.get("rows", [])
+    farm = payload.get("farm", "")
 
-    # full latest snapshot (overwrite)
+    # full latest snapshot (overwrite) - all current rows
     with open(LATEST, "w", encoding="utf-8") as f:
-        json.dump({"timestamp": ts, "grids": grids}, f, ensure_ascii=False, indent=2)
+        json.dump({"timestamp": ts, "farm": farm, "rowCount": len(rows), "rows": rows},
+                  f, ensure_ascii=False, indent=2)
 
     # append-only history of changes
     if changes:
         with open(CHANGES, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"timestamp": ts, "changes": changes}, ensure_ascii=False) + "\n")
+            f.write(json.dumps({"timestamp": ts, "farm": farm, "changes": changes},
+                               ensure_ascii=False) + "\n")
 
     # human-readable log
     with open(LOGTXT, "a", encoding="utf-8") as f:
-        f.write(f"\n===== {ts} =====\n")
+        f.write(f"\n===== {ts} {farm} =====\n")
         if not changes:
             f.write("no changes\n")
         for c in changes:
-            hdr = c.get("headers") or []
-            row = c.get("row") or []
-            if hdr and len(hdr) == len(row):
-                pairs = ", ".join(f"{h}={v}" for h, v in zip(hdr, row) if v)
-            else:
-                pairs = " | ".join(row)
-            f.write(f"[{c.get('grid','')}] {pairs}\n")
+            parts = [f"{heb}={c.get(k)}" for k, heb in LOG_FIELDS
+                     if c.get(k) not in (None, "", "0")]
+            f.write(f"[{c.get('type', '')}] " + ", ".join(parts) + "\n")
 
-    return {"ok": True, "saved_changes": len(changes), "grids": len(grids)}
+    return {"ok": True, "saved_changes": len(changes), "rows": len(rows)}
 
 
 class Handler(BaseHTTPRequestHandler):
