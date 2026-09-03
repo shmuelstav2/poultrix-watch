@@ -47,6 +47,18 @@ def save(payload):
     farm_id = payload.get("farmId") or payload.get("farm_id")
     midgar = payload.get("flock") or payload.get("midgar") or ""
     mode = payload.get("mode", "incremental")
+    domain = payload.get("domain")
+
+    # --- domain report payload (weighings / daily_mortality / marketings / feed) ---
+    if domain:
+        try:
+            con = db.connect()
+            db.save_raw(con, farm_id, farm, midgar, {"timestamp": ts, "domain": domain, "rows": rows})
+            ins, upd = db.save_report_rows(con, farm_id, farm, midgar, domain, rows)
+            con.close()
+            return {"ok": True, "domain": domain, "rows": len(rows), "inserted": ins, "updated": upd}
+        except Exception as e:
+            return {"ok": False, "domain": domain, "error": str(e)}
 
     # --- warehouse: upsert into SQLite (the central store) ---
     db_result = {}

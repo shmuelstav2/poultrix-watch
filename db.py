@@ -207,3 +207,51 @@ def save_raw(con, farm_id, farm_name, midgar, payload):
         "VALUES (?,?,?,?,?)",
         (farm_id, farm_name, midgar, _now(), json.dumps(payload, ensure_ascii=False)))
     con.commit()
+
+
+# ---- generic report rows (weighings / mortality-summary / marketings / feed) ----
+REPORT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS report_rows (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    farm_poultrix_id INTEGER,
+    farm_name        TEXT,
+    midgar_text      TEXT,
+    domain           TEXT,      -- weighings | mortality | marketings | feed
+    row_key          TEXT,      -- dedupe key within farm+flock+domain
+    row_json         TEXT,
+    scraped_at       TEXT,
+    UNIQUE(farm_poultrix_id, midgar_text, domain, row_key)
+);
+CREATE INDEX IF NOT EXISTS ix_report_farm ON report_rows(farm_poultrix_id, domain);
+"""
+
+
+def _ensure_report(con):
+    con.executescript(REPORT_SCHEMA)
+
+
+def save_report_rows(con, farm_id, farm_name, midgar, domain, rows):
+    """rows: list of dicts. Idempotent upsert keyed by a hash of the row."""
+    _ensure_report(con)
+    ts = _now()
+    inserted = updated = 0
+    for r in rows:
+        rk = hashlib.sha1(json.dumps(r, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
+        rj = json.dumps(r, ensure_ascii=False)
+        cur = con.execute(
+            "SELECT id, row_json FROM report_rows WHERE farm_poultrix_id=? AND midgar_text=? "
+            "AND domain=? AND row_key=?", (farm_id, midgar, domain, rk))
+        ex = cur.fetchone()
+        if ex is None:
+            con.execute("INSERT INTO report_rows (farm_poultrix_id,farm_name,midgar_text,domain,row_key,row_json,scraped_at) "
+                        "VALUES (?,?,?,?,?,?,?)", (farm_id, farm_name, midgar, domain, rk, rj, ts))
+            inserted += 1
+        elif ex["row_json"] != rj:
+            con.execute("UPDATE report_rows SET row_json=?, scraped_at=? WHERE id=?", (rj, ts, ex["id"]))
+            updated += 1
+    if farm_id is not None:
+        con.execute("INSERT INTO farms (poultrix_id,name,first_seen,last_seen) VALUES (?,?,?,?) "
+                    "ON CONFLICT(poultrix_id) DO UPDATE SET name=excluded.name, last_seen=excluded.last_seen",
+                    (farm_id, farm_name, ts, ts))
+    con.commit()
+    return inserted, updated

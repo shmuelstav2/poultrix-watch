@@ -12,7 +12,7 @@ Endpoints (all except /health require header  X-API-Key: <key>):
 """
 import os
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
 
 import db
 
@@ -102,3 +102,31 @@ def summary(farm: int = Query(...), flock: str = Query(...)):
              "AVG(NULLIF(weight,0)) avg_weight FROM daily_records "
              "WHERE farm_poultrix_id=? AND midgar_text=?", (farm, flock))
     return rows[0] if rows else {}
+
+
+@app.get("/reports", dependencies=[Depends(require_key)])
+def reports(farm: int = Query(None), flock: str = Query(None),
+            domain: str = Query(None), limit: int = 2000, offset: int = 0):
+    where, params = [], []
+    if farm is not None:
+        where.append("farm_poultrix_id=?"); params.append(farm)
+    if flock:
+        where.append("midgar_text=?"); params.append(flock)
+    if domain:
+        where.append("domain=?"); params.append(domain)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    params += [min(limit, 10000), offset]
+    import json as _j
+    rows = q(f"SELECT farm_poultrix_id, farm_name, midgar_text, domain, row_json "
+             f"FROM report_rows {clause} ORDER BY id LIMIT ? OFFSET ?", params)
+    for r in rows:
+        r["data"] = _j.loads(r.pop("row_json"))
+    return rows
+
+
+@app.get("/reports/summary", dependencies=[Depends(require_key)])
+def reports_summary(domain: str = Query(None)):
+    clause = "WHERE domain=?" if domain else ""
+    p = [domain] if domain else []
+    return q(f"SELECT farm_name, midgar_text, domain, COUNT(*) rows FROM report_rows {clause} "
+             f"GROUP BY farm_poultrix_id, midgar_text, domain ORDER BY farm_name", p)
