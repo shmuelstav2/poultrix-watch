@@ -13,7 +13,7 @@ Endpoints (all except /health require header  X-API-Key: <key>):
 import os
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 import db
 
@@ -177,3 +177,13 @@ def log_read(name: str, tail: int = Query(200, ge=1, le=5000)):
         return "".join(lines[-tail:])
     except Exception as e:
         raise HTTPException(status_code=500, detail="read error: %s" % e)
+
+
+@app.get("/shot/{name}")
+def shot(name: str):
+    """Serve a login screenshot PNG (login_filled / login_final)."""
+    safe = "".join(c for c in name if c.isalnum() or c in "_-")
+    path = os.path.join(_SVC, "login_%s.png" % safe)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="no screenshot '%s'" % safe)
+    return FileResponse(path, media_type="image/png")
